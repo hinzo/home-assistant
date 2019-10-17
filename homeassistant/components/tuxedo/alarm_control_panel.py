@@ -124,7 +124,7 @@ class TuxedoPanel(alarm.AlarmControlPanel):
 
         @callback
         def async_register(event_time=None):
-            result = self.api_request(
+            result = self._api_request(
                 "/Registration/Register", {"mac": self._mac, "operation": "set"}
             )
             _LOGGER.info("register result: %s", result)
