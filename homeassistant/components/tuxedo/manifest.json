@@ -1,0 +1,10 @@
+{
+  "domain": "tuxedo",
+  "name": "Tuxedo Touch Controller",
+  "documentation": "https://www.home-assistant.io/integrations/tuxedo",
+  "requirements": [],
+  "dependencies": [],
+  "codeowners": [
+    "@hinzo"
+  ]
+}
