@@ -1,7 +1,7 @@
 """Helpers for HomeKit data stored in HA storage."""
 
-from homeassistant.helpers.storage import Store
 from homeassistant.core import callback
+from homeassistant.helpers.storage import Store
 
 from .const import DOMAIN
 
@@ -34,8 +34,7 @@ class EntityMapStorage:
 
     async def async_initialize(self):
         """Get the pairing cache data."""
-        raw_storage = await self.store.async_load()
-        if not raw_storage:
+        if not (raw_storage := await self.store.async_load()):
             # There is no cached data about HomeKit devices yet
             return
 
@@ -45,6 +44,7 @@ class EntityMapStorage:
         """Get a pairing cache item."""
         return self.storage_data.get(homekit_id)
 
+    @callback
     def async_create_or_update_map(self, homekit_id, config_num, accessories):
         """Create a new pairing cache."""
         data = {"config_num": config_num, "accessories": accessories}
@@ -52,6 +52,7 @@ class EntityMapStorage:
         self._async_schedule_save()
         return data
 
+    @callback
     def async_delete_map(self, homekit_id):
         """Delete pairing cache."""
         if homekit_id not in self.storage_data:

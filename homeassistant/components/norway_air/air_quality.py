@@ -1,14 +1,14 @@
 """Sensor for checking the air quality forecast around Norway."""
+from datetime import timedelta
 import logging
 
-from datetime import timedelta
+import metno
 import voluptuous as vol
 
-import homeassistant.helpers.config_validation as cv
 from homeassistant.components.air_quality import PLATFORM_SCHEMA, AirQualityEntity
 from homeassistant.const import CONF_LATITUDE, CONF_LONGITUDE, CONF_NAME
 from homeassistant.helpers.aiohttp_client import async_get_clientsession
-
+import homeassistant.helpers.config_validation as cv
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -23,6 +23,8 @@ CONF_FORECAST = "forecast"
 
 DEFAULT_FORECAST = 0
 DEFAULT_NAME = "Air quality Norway"
+
+OVERRIDE_URL = "https://aa015h6buqvih86i1.api.met.no/weatherapi/airqualityforecast/0.1/"
 
 PLATFORM_SCHEMA = PLATFORM_SCHEMA.extend(
     {
@@ -67,14 +69,14 @@ def round_state(func):
 
 
 class AirSensor(AirQualityEntity):
-    """Representation of an Yr.no sensor."""
+    """Representation of an air quality sensor."""
 
     def __init__(self, name, coordinates, forecast, session):
         """Initialize the sensor."""
-        import metno
-
         self._name = name
-        self._api = metno.AirQualityData(coordinates, forecast, session)
+        self._api = metno.AirQualityData(
+            coordinates, forecast, session, api_url=OVERRIDE_URL
+        )
 
     @property
     def attribution(self) -> str:
@@ -82,7 +84,7 @@ class AirSensor(AirQualityEntity):
         return ATTRIBUTION
 
     @property
-    def device_state_attributes(self) -> dict:
+    def extra_state_attributes(self) -> dict:
         """Return other details about the sensor state."""
         return {
             "level": self._api.data.get("level"),
@@ -94,31 +96,31 @@ class AirSensor(AirQualityEntity):
         """Return the name of the sensor."""
         return self._name
 
-    @property
+    @property  # type: ignore
     @round_state
     def air_quality_index(self):
         """Return the Air Quality Index (AQI)."""
         return self._api.data.get("aqi")
 
-    @property
+    @property  # type: ignore
     @round_state
     def nitrogen_dioxide(self):
         """Return the NO2 (nitrogen dioxide) level."""
         return self._api.data.get("no2_concentration")
 
-    @property
+    @property  # type: ignore
     @round_state
     def ozone(self):
         """Return the O3 (ozone) level."""
         return self._api.data.get("o3_concentration")
 
-    @property
+    @property  # type: ignore
     @round_state
     def particulate_matter_2_5(self):
         """Return the particulate matter 2.5 level."""
         return self._api.data.get("pm25_concentration")
 
-    @property
+    @property  # type: ignore
     @round_state
     def particulate_matter_10(self):
         """Return the particulate matter 10 level."""

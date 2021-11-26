@@ -302,7 +302,7 @@ def test_aprs_listener_rx_msg_no_position():
 def test_setup_scanner():
     """Test setup_scanner."""
     with patch(
-        "homeassistant.components." "aprs.device_tracker.AprsListenerThread"
+        "homeassistant.components.aprs.device_tracker.AprsListenerThread"
     ) as listener:
         hass = get_test_home_assistant()
         hass.start()
@@ -327,19 +327,18 @@ def test_setup_scanner():
 
 def test_setup_scanner_timeout():
     """Test setup_scanner failure from timeout."""
-    hass = get_test_home_assistant()
-    hass.start()
+    with patch("aprslib.IS.connect", side_effect=TimeoutError):
+        hass = get_test_home_assistant()
+        hass.start()
 
-    config = {
-        "username": TEST_CALLSIGN,
-        "password": TEST_PASSWORD,
-        "host": "localhost",
-        "timeout": 0.01,
-        "callsigns": ["XX0FOO*", "YY0BAR-1"],
-    }
+        config = {
+            "username": TEST_CALLSIGN,
+            "password": TEST_PASSWORD,
+            "host": "localhost",
+            "timeout": 0.01,
+            "callsigns": ["XX0FOO*", "YY0BAR-1"],
+        }
 
-    see = Mock()
-    try:
+        see = Mock()
         assert not device_tracker.setup_scanner(hass, config, see)
-    finally:
         hass.stop()

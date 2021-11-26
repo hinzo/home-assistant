@@ -2,16 +2,16 @@
 import logging
 import urllib
 
+from twilio.base.exceptions import TwilioRestException
 import voluptuous as vol
-
-from homeassistant.components.twilio import DATA_TWILIO
-import homeassistant.helpers.config_validation as cv
 
 from homeassistant.components.notify import (
     ATTR_TARGET,
     PLATFORM_SCHEMA,
     BaseNotificationService,
 )
+from homeassistant.components.twilio import DATA_TWILIO
+import homeassistant.helpers.config_validation as cv
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -43,11 +43,7 @@ class TwilioCallNotificationService(BaseNotificationService):
 
     def send_message(self, message="", **kwargs):
         """Call to specified target users."""
-        from twilio.base.exceptions import TwilioRestException
-
-        targets = kwargs.get(ATTR_TARGET)
-
-        if not targets:
+        if not (targets := kwargs.get(ATTR_TARGET)):
             _LOGGER.info("At least 1 target is required")
             return
 

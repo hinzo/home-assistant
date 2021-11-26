@@ -1,53 +1,67 @@
 """Unit system helper class and methods."""
+from __future__ import annotations
 
-import logging
-from typing import Optional
 from numbers import Number
 
 from homeassistant.const import (
-    TEMP_CELSIUS,
-    TEMP_FAHRENHEIT,
-    LENGTH_MILES,
+    ACCUMULATED_PRECIPITATION,
+    CONF_UNIT_SYSTEM_IMPERIAL,
+    CONF_UNIT_SYSTEM_METRIC,
+    LENGTH,
+    LENGTH_INCHES,
     LENGTH_KILOMETERS,
-    PRESSURE_PA,
-    PRESSURE_PSI,
-    VOLUME_LITERS,
-    VOLUME_GALLONS,
+    LENGTH_MILES,
+    LENGTH_MILLIMETERS,
+    MASS,
     MASS_GRAMS,
     MASS_KILOGRAMS,
     MASS_OUNCES,
     MASS_POUNDS,
-    CONF_UNIT_SYSTEM_METRIC,
-    CONF_UNIT_SYSTEM_IMPERIAL,
-    LENGTH,
-    MASS,
     PRESSURE,
-    VOLUME,
+    PRESSURE_PA,
+    PRESSURE_PSI,
+    SPEED_METERS_PER_SECOND,
+    SPEED_MILES_PER_HOUR,
+    TEMP_CELSIUS,
+    TEMP_FAHRENHEIT,
     TEMPERATURE,
     UNIT_NOT_RECOGNIZED_TEMPLATE,
+    VOLUME,
+    VOLUME_GALLONS,
+    VOLUME_LITERS,
+    WIND_SPEED,
 )
-from homeassistant.util import temperature as temperature_util
-from homeassistant.util import distance as distance_util
-from homeassistant.util import pressure as pressure_util
-from homeassistant.util import volume as volume_util
+from homeassistant.util import (
+    distance as distance_util,
+    pressure as pressure_util,
+    speed as speed_util,
+    temperature as temperature_util,
+    volume as volume_util,
+)
 
-_LOGGER = logging.getLogger(__name__)
+# mypy: disallow-any-generics
 
 LENGTH_UNITS = distance_util.VALID_UNITS
 
-MASS_UNITS = [MASS_POUNDS, MASS_OUNCES, MASS_KILOGRAMS, MASS_GRAMS]
+MASS_UNITS: tuple[str, ...] = (MASS_POUNDS, MASS_OUNCES, MASS_KILOGRAMS, MASS_GRAMS)
 
 PRESSURE_UNITS = pressure_util.VALID_UNITS
 
 VOLUME_UNITS = volume_util.VALID_UNITS
 
-TEMPERATURE_UNITS = [TEMP_FAHRENHEIT, TEMP_CELSIUS]
+WIND_SPEED_UNITS = speed_util.VALID_UNITS
+
+TEMPERATURE_UNITS: tuple[str, ...] = (TEMP_FAHRENHEIT, TEMP_CELSIUS)
 
 
 def is_valid_unit(unit: str, unit_type: str) -> bool:
     """Check if the unit is valid for it's type."""
     if unit_type == LENGTH:
         units = LENGTH_UNITS
+    elif unit_type == ACCUMULATED_PRECIPITATION:
+        units = LENGTH_UNITS
+    elif unit_type == WIND_SPEED:
+        units = WIND_SPEED_UNITS
     elif unit_type == TEMPERATURE:
         units = TEMPERATURE_UNITS
     elif unit_type == MASS:
@@ -70,20 +84,24 @@ class UnitSystem:
         name: str,
         temperature: str,
         length: str,
+        wind_speed: str,
         volume: str,
         mass: str,
         pressure: str,
+        accumulated_precipitation: str,
     ) -> None:
         """Initialize the unit system object."""
         errors: str = ", ".join(
             UNIT_NOT_RECOGNIZED_TEMPLATE.format(unit, unit_type)
-            for unit, unit_type in [
+            for unit, unit_type in (
+                (accumulated_precipitation, ACCUMULATED_PRECIPITATION),
                 (temperature, TEMPERATURE),
                 (length, LENGTH),
+                (wind_speed, WIND_SPEED),
                 (volume, VOLUME),
                 (mass, MASS),
                 (pressure, PRESSURE),
-            ]
+            )
             if not is_valid_unit(unit, unit_type)
         )
 
@@ -91,11 +109,13 @@ class UnitSystem:
             raise ValueError(errors)
 
         self.name = name
+        self.accumulated_precipitation_unit = accumulated_precipitation
         self.temperature_unit = temperature
         self.length_unit = length
         self.mass_unit = mass
         self.pressure_unit = pressure
         self.volume_unit = volume
+        self.wind_speed_unit = wind_speed
 
     @property
     def is_metric(self) -> bool:
@@ -105,51 +125,66 @@ class UnitSystem:
     def temperature(self, temperature: float, from_unit: str) -> float:
         """Convert the given temperature to this unit system."""
         if not isinstance(temperature, Number):
-            raise TypeError("{} is not a numeric value.".format(str(temperature)))
+            raise TypeError(f"{temperature!s} is not a numeric value.")
 
-        # type ignore: https://github.com/python/mypy/issues/7207
-        return temperature_util.convert(  # type: ignore
-            temperature, from_unit, self.temperature_unit
-        )
+        return temperature_util.convert(temperature, from_unit, self.temperature_unit)
 
-    def length(self, length: Optional[float], from_unit: str) -> float:
+    def length(self, length: float | None, from_unit: str) -> float:
         """Convert the given length to this unit system."""
         if not isinstance(length, Number):
-            raise TypeError("{} is not a numeric value.".format(str(length)))
+            raise TypeError(f"{length!s} is not a numeric value.")
 
         # type ignore: https://github.com/python/mypy/issues/7207
         return distance_util.convert(  # type: ignore
             length, from_unit, self.length_unit
         )
 
-    def pressure(self, pressure: Optional[float], from_unit: str) -> float:
+    def accumulated_precipitation(self, precip: float | None, from_unit: str) -> float:
+        """Convert the given length to this unit system."""
+        if not isinstance(precip, Number):
+            raise TypeError(f"{precip!s} is not a numeric value.")
+
+        # type ignore: https://github.com/python/mypy/issues/7207
+        return distance_util.convert(  # type: ignore
+            precip, from_unit, self.accumulated_precipitation_unit
+        )
+
+    def pressure(self, pressure: float | None, from_unit: str) -> float:
         """Convert the given pressure to this unit system."""
         if not isinstance(pressure, Number):
-            raise TypeError("{} is not a numeric value.".format(str(pressure)))
+            raise TypeError(f"{pressure!s} is not a numeric value.")
 
         # type ignore: https://github.com/python/mypy/issues/7207
         return pressure_util.convert(  # type: ignore
             pressure, from_unit, self.pressure_unit
         )
 
-    def volume(self, volume: Optional[float], from_unit: str) -> float:
-        """Convert the given volume to this unit system."""
-        if not isinstance(volume, Number):
-            raise TypeError("{} is not a numeric value.".format(str(volume)))
+    def wind_speed(self, wind_speed: float | None, from_unit: str) -> float:
+        """Convert the given wind_speed to this unit system."""
+        if not isinstance(wind_speed, Number):
+            raise TypeError(f"{wind_speed!s} is not a numeric value.")
 
         # type ignore: https://github.com/python/mypy/issues/7207
-        return volume_util.convert(  # type: ignore
-            volume, from_unit, self.volume_unit
-        )
+        return speed_util.convert(wind_speed, from_unit, self.wind_speed_unit)  # type: ignore
 
-    def as_dict(self) -> dict:
+    def volume(self, volume: float | None, from_unit: str) -> float:
+        """Convert the given volume to this unit system."""
+        if not isinstance(volume, Number):
+            raise TypeError(f"{volume!s} is not a numeric value.")
+
+        # type ignore: https://github.com/python/mypy/issues/7207
+        return volume_util.convert(volume, from_unit, self.volume_unit)  # type: ignore
+
+    def as_dict(self) -> dict[str, str]:
         """Convert the unit system to a dictionary."""
         return {
             LENGTH: self.length_unit,
+            ACCUMULATED_PRECIPITATION: self.accumulated_precipitation_unit,
             MASS: self.mass_unit,
             PRESSURE: self.pressure_unit,
             TEMPERATURE: self.temperature_unit,
             VOLUME: self.volume_unit,
+            WIND_SPEED: self.wind_speed_unit,
         }
 
 
@@ -157,16 +192,20 @@ METRIC_SYSTEM = UnitSystem(
     CONF_UNIT_SYSTEM_METRIC,
     TEMP_CELSIUS,
     LENGTH_KILOMETERS,
+    SPEED_METERS_PER_SECOND,
     VOLUME_LITERS,
     MASS_GRAMS,
     PRESSURE_PA,
+    LENGTH_MILLIMETERS,
 )
 
 IMPERIAL_SYSTEM = UnitSystem(
     CONF_UNIT_SYSTEM_IMPERIAL,
     TEMP_FAHRENHEIT,
     LENGTH_MILES,
+    SPEED_MILES_PER_HOUR,
     VOLUME_GALLONS,
     MASS_POUNDS,
     PRESSURE_PSI,
+    LENGTH_INCHES,
 )

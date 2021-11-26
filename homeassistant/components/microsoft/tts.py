@@ -2,10 +2,11 @@
 from http.client import HTTPException
 import logging
 
+from pycsspeechtts import pycsspeechtts
 import voluptuous as vol
 
 from homeassistant.components.tts import CONF_LANG, PLATFORM_SCHEMA, Provider
-from homeassistant.const import CONF_API_KEY, CONF_TYPE
+from homeassistant.const import CONF_API_KEY, CONF_REGION, CONF_TYPE, PERCENTAGE
 import homeassistant.helpers.config_validation as cv
 
 CONF_GENDER = "gender"
@@ -14,14 +15,15 @@ CONF_RATE = "rate"
 CONF_VOLUME = "volume"
 CONF_PITCH = "pitch"
 CONF_CONTOUR = "contour"
-
 _LOGGER = logging.getLogger(__name__)
 
 SUPPORTED_LANGUAGES = [
     "ar-eg",
     "ar-sa",
+    "bg-bg",
     "ca-es",
     "cs-cz",
+    "cy-gb",
     "da-dk",
     "de-at",
     "de-ch",
@@ -30,23 +32,42 @@ SUPPORTED_LANGUAGES = [
     "en-au",
     "en-ca",
     "en-gb",
+    "en-hk",
     "en-ie",
     "en-in",
+    "en-nz",
+    "en-ph",
+    "en-sg",
     "en-us",
+    "en-za",
+    "es-ar",
+    "es-co",
     "es-es",
     "es-mx",
+    "es-us",
+    "et-ee",
     "fi-fi",
+    "fr-be",
     "fr-ca",
     "fr-ch",
     "fr-fr",
+    "ga-ie",
+    "gu-in",
     "he-il",
     "hi-in",
+    "hr-hr",
     "hu-hu",
     "id-id",
     "it-it",
     "ja-jp",
     "ko-kr",
+    "lt-lt",
+    "lv-lv",
+    "mr-in",
+    "ms-my",
+    "mt-mt",
     "nb-no",
+    "nl-be",
     "nl-nl",
     "pl-pl",
     "pt-br",
@@ -54,9 +75,16 @@ SUPPORTED_LANGUAGES = [
     "ro-ro",
     "ru-ru",
     "sk-sk",
+    "sl-si",
     "sv-se",
+    "sw-ke",
+    "ta-in",
+    "te-in",
     "th-th",
     "tr-tr",
+    "uk-ua",
+    "ur-pk",
+    "vi-vn",
     "zh-cn",
     "zh-hk",
     "zh-tw",
@@ -66,12 +94,13 @@ GENDERS = ["Female", "Male"]
 
 DEFAULT_LANG = "en-us"
 DEFAULT_GENDER = "Female"
-DEFAULT_TYPE = "ZiraRUS"
+DEFAULT_TYPE = "JennyNeural"
 DEFAULT_OUTPUT = "audio-16khz-128kbitrate-mono-mp3"
 DEFAULT_RATE = 0
 DEFAULT_VOLUME = 0
 DEFAULT_PITCH = "default"
 DEFAULT_CONTOUR = ""
+DEFAULT_REGION = "eastus"
 
 PLATFORM_SCHEMA = PLATFORM_SCHEMA.extend(
     {
@@ -87,11 +116,12 @@ PLATFORM_SCHEMA = PLATFORM_SCHEMA.extend(
         ),
         vol.Optional(CONF_PITCH, default=DEFAULT_PITCH): cv.string,
         vol.Optional(CONF_CONTOUR, default=DEFAULT_CONTOUR): cv.string,
+        vol.Optional(CONF_REGION, default=DEFAULT_REGION): cv.string,
     }
 )
 
 
-def get_engine(hass, config):
+def get_engine(hass, config, discovery_info=None):
     """Set up Microsoft speech component."""
     return MicrosoftProvider(
         config[CONF_API_KEY],
@@ -102,23 +132,27 @@ def get_engine(hass, config):
         config[CONF_VOLUME],
         config[CONF_PITCH],
         config[CONF_CONTOUR],
+        config[CONF_REGION],
     )
 
 
 class MicrosoftProvider(Provider):
     """The Microsoft speech API provider."""
 
-    def __init__(self, apikey, lang, gender, ttype, rate, volume, pitch, contour):
+    def __init__(
+        self, apikey, lang, gender, ttype, rate, volume, pitch, contour, region
+    ):
         """Init Microsoft TTS service."""
         self._apikey = apikey
         self._lang = lang
         self._gender = gender
         self._type = ttype
         self._output = DEFAULT_OUTPUT
-        self._rate = f"{rate}%"
-        self._volume = f"{volume}%"
+        self._rate = f"{rate}{PERCENTAGE}"
+        self._volume = f"{volume}{PERCENTAGE}"
         self._pitch = pitch
         self._contour = contour
+        self._region = region
         self.name = "Microsoft"
 
     @property
@@ -135,10 +169,9 @@ class MicrosoftProvider(Provider):
         """Load TTS from Microsoft."""
         if language is None:
             language = self._lang
-        from pycsspeechtts import pycsspeechtts
 
         try:
-            trans = pycsspeechtts.TTSTranslator(self._apikey)
+            trans = pycsspeechtts.TTSTranslator(self._apikey, self._region)
             data = trans.speak(
                 language=language,
                 gender=self._gender,

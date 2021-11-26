@@ -1,48 +1,123 @@
-"""The tests for the cover platform."""
+"""The tests for Cover."""
+import homeassistant.components.cover as cover
+from homeassistant.const import (
+    ATTR_ENTITY_ID,
+    CONF_PLATFORM,
+    SERVICE_TOGGLE,
+    STATE_CLOSED,
+    STATE_CLOSING,
+    STATE_OPEN,
+    STATE_OPENING,
+)
+from homeassistant.setup import async_setup_component
 
-from homeassistant.components.cover import SERVICE_OPEN_COVER, SERVICE_CLOSE_COVER
-from homeassistant.helpers import intent
-import homeassistant.components as comps
-from tests.common import async_mock_service
 
+async def test_services(hass, enable_custom_integrations):
+    """Test the provided services."""
+    platform = getattr(hass.components, "test.cover")
 
-async def test_open_cover_intent(hass):
-    """Test HassOpenCover intent."""
-    result = await comps.cover.async_setup(hass, {})
-    assert result
-
-    hass.states.async_set("cover.garage_door", "closed")
-    calls = async_mock_service(hass, "cover", SERVICE_OPEN_COVER)
-
-    response = await intent.async_handle(
-        hass, "test", "HassOpenCover", {"name": {"value": "garage door"}}
+    platform.init()
+    assert await async_setup_component(
+        hass, cover.DOMAIN, {cover.DOMAIN: {CONF_PLATFORM: "test"}}
     )
     await hass.async_block_till_done()
 
-    assert response.speech["plain"]["speech"] == "Opened garage door"
-    assert len(calls) == 1
-    call = calls[0]
-    assert call.domain == "cover"
-    assert call.service == "open_cover"
-    assert call.data == {"entity_id": "cover.garage_door"}
+    # ent1 = cover without tilt and position
+    # ent2 = cover with position but no tilt
+    # ent3 = cover with simple tilt functions and no position
+    # ent4 = cover with all tilt functions but no position
+    # ent5 = cover with all functions
+    ent1, ent2, ent3, ent4, ent5 = platform.ENTITIES
+
+    # Test init all covers should be open
+    assert is_open(hass, ent1)
+    assert is_open(hass, ent2)
+    assert is_open(hass, ent3)
+    assert is_open(hass, ent4)
+    assert is_open(hass, ent5)
+
+    # call basic toggle services
+    await call_service(hass, SERVICE_TOGGLE, ent1)
+    await call_service(hass, SERVICE_TOGGLE, ent2)
+    await call_service(hass, SERVICE_TOGGLE, ent3)
+    await call_service(hass, SERVICE_TOGGLE, ent4)
+    await call_service(hass, SERVICE_TOGGLE, ent5)
+
+    # entities without stop should be closed and with stop should be closing
+    assert is_closed(hass, ent1)
+    assert is_closing(hass, ent2)
+    assert is_closed(hass, ent3)
+    assert is_closed(hass, ent4)
+    assert is_closing(hass, ent5)
+
+    # call basic toggle services and set different cover position states
+    await call_service(hass, SERVICE_TOGGLE, ent1)
+    set_cover_position(ent2, 0)
+    await call_service(hass, SERVICE_TOGGLE, ent2)
+    await call_service(hass, SERVICE_TOGGLE, ent3)
+    await call_service(hass, SERVICE_TOGGLE, ent4)
+    set_cover_position(ent5, 15)
+    await call_service(hass, SERVICE_TOGGLE, ent5)
+
+    # entities should be in correct state depending on the SUPPORT_STOP feature and cover position
+    assert is_open(hass, ent1)
+    assert is_closed(hass, ent2)
+    assert is_open(hass, ent3)
+    assert is_open(hass, ent4)
+    assert is_open(hass, ent5)
+
+    # call basic toggle services
+    await call_service(hass, SERVICE_TOGGLE, ent1)
+    await call_service(hass, SERVICE_TOGGLE, ent2)
+    await call_service(hass, SERVICE_TOGGLE, ent3)
+    await call_service(hass, SERVICE_TOGGLE, ent4)
+    await call_service(hass, SERVICE_TOGGLE, ent5)
+
+    # entities should be in correct state depending on the SUPPORT_STOP feature and cover position
+    assert is_closed(hass, ent1)
+    assert is_opening(hass, ent2)
+    assert is_closed(hass, ent3)
+    assert is_closed(hass, ent4)
+    assert is_opening(hass, ent5)
 
 
-async def test_close_cover_intent(hass):
-    """Test HassCloseCover intent."""
-    result = await comps.cover.async_setup(hass, {})
-    assert result
-
-    hass.states.async_set("cover.garage_door", "open")
-    calls = async_mock_service(hass, "cover", SERVICE_CLOSE_COVER)
-
-    response = await intent.async_handle(
-        hass, "test", "HassCloseCover", {"name": {"value": "garage door"}}
+def call_service(hass, service, ent):
+    """Call any service on entity."""
+    return hass.services.async_call(
+        cover.DOMAIN, service, {ATTR_ENTITY_ID: ent.entity_id}, blocking=True
     )
-    await hass.async_block_till_done()
 
-    assert response.speech["plain"]["speech"] == "Closed garage door"
-    assert len(calls) == 1
-    call = calls[0]
-    assert call.domain == "cover"
-    assert call.service == "close_cover"
-    assert call.data == {"entity_id": "cover.garage_door"}
+
+def set_cover_position(ent, position) -> None:
+    """Set a position value to a cover."""
+    ent._values["current_cover_position"] = position
+
+
+def is_open(hass, ent):
+    """Return if the cover is closed based on the statemachine."""
+    return hass.states.is_state(ent.entity_id, STATE_OPEN)
+
+
+def is_opening(hass, ent):
+    """Return if the cover is closed based on the statemachine."""
+    return hass.states.is_state(ent.entity_id, STATE_OPENING)
+
+
+def is_closed(hass, ent):
+    """Return if the cover is closed based on the statemachine."""
+    return hass.states.is_state(ent.entity_id, STATE_CLOSED)
+
+
+def is_closing(hass, ent):
+    """Return if the cover is closed based on the statemachine."""
+    return hass.states.is_state(ent.entity_id, STATE_CLOSING)
+
+
+def test_deprecated_base_class(caplog):
+    """Test deprecated base class."""
+
+    class CustomCover(cover.CoverDevice):
+        pass
+
+    CustomCover()
+    assert "CoverDevice is deprecated, modify CustomCover" in caplog.text

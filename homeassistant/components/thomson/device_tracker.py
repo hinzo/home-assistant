@@ -5,13 +5,13 @@ import telnetlib
 
 import voluptuous as vol
 
-import homeassistant.helpers.config_validation as cv
 from homeassistant.components.device_tracker import (
     DOMAIN,
-    PLATFORM_SCHEMA,
+    PLATFORM_SCHEMA as PARENT_PLATFORM_SCHEMA,
     DeviceScanner,
 )
 from homeassistant.const import CONF_HOST, CONF_PASSWORD, CONF_USERNAME
+import homeassistant.helpers.config_validation as cv
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -25,7 +25,7 @@ _DEVICES_REGEX = re.compile(
     r"(?P<host>([^\s]+))"
 )
 
-PLATFORM_SCHEMA = PLATFORM_SCHEMA.extend(
+PLATFORM_SCHEMA = PARENT_PLATFORM_SCHEMA.extend(
     {
         vol.Required(CONF_HOST): cv.string,
         vol.Required(CONF_PASSWORD): cv.string,
@@ -78,8 +78,7 @@ class ThomsonDeviceScanner(DeviceScanner):
             return False
 
         _LOGGER.info("Checking ARP")
-        data = self.get_thomson_data()
-        if not data:
+        if not (data := self.get_thomson_data()):
             return False
 
         # Flag C stands for CONNECTED
@@ -98,9 +97,9 @@ class ThomsonDeviceScanner(DeviceScanner):
             telnet.read_until(b"Password : ")
             telnet.write((self.password + "\r\n").encode("ascii"))
             telnet.read_until(b"=>")
-            telnet.write(("hostmgr list\r\n").encode("ascii"))
+            telnet.write(b"hostmgr list\r\n")
             devices_result = telnet.read_until(b"=>").split(b"\r\n")
-            telnet.write("exit\r\n".encode("ascii"))
+            telnet.write(b"exit\r\n")
         except EOFError:
             _LOGGER.exception("Unexpected response from router")
             return
@@ -110,8 +109,7 @@ class ThomsonDeviceScanner(DeviceScanner):
 
         devices = {}
         for device in devices_result:
-            match = _DEVICES_REGEX.search(device.decode("utf-8"))
-            if match:
+            if match := _DEVICES_REGEX.search(device.decode("utf-8")):
                 devices[match.group("ip")] = {
                     "ip": match.group("ip"),
                     "mac": match.group("mac").upper(),

@@ -3,23 +3,21 @@ import copy
 from datetime import timedelta
 import logging
 
+from httplib2 import ServerNotFoundError
+
 from homeassistant.components.calendar import (
     ENTITY_ID_FORMAT,
     CalendarEventDevice,
     calculate_offset,
     is_offset_reached,
 )
+from homeassistant.const import CONF_DEVICE_ID, CONF_ENTITIES, CONF_NAME, CONF_OFFSET
 from homeassistant.helpers.entity import generate_entity_id
 from homeassistant.util import Throttle, dt
 
 from . import (
     CONF_CAL_ID,
-    CONF_DEVICE_ID,
-    CONF_ENTITIES,
     CONF_IGNORE_AVAILABILITY,
-    CONF_MAX_RESULTS,
-    CONF_NAME,
-    CONF_OFFSET,
     CONF_SEARCH,
     CONF_TRACK,
     DEFAULT_CONF_OFFSET,
@@ -31,7 +29,6 @@ _LOGGER = logging.getLogger(__name__)
 
 DEFAULT_GOOGLE_SEARCH_PARAMS = {
     "orderBy": "startTime",
-    "maxResults": 5,
     "singleEvents": True,
 }
 
@@ -72,7 +69,6 @@ class GoogleCalendarEventDevice(CalendarEventDevice):
             calendar,
             data.get(CONF_SEARCH),
             data.get(CONF_IGNORE_AVAILABILITY),
-            data.get(CONF_MAX_RESULTS),
         )
         self._event = None
         self._name = data[CONF_NAME]
@@ -81,7 +77,7 @@ class GoogleCalendarEventDevice(CalendarEventDevice):
         self.entity_id = entity_id
 
     @property
-    def device_state_attributes(self):
+    def extra_state_attributes(self):
         """Return the device state attributes."""
         return {"offset_reached": self._offset_reached}
 
@@ -114,21 +110,15 @@ class GoogleCalendarEventDevice(CalendarEventDevice):
 class GoogleCalendarData:
     """Class to utilize calendar service object to get next event."""
 
-    def __init__(
-        self, calendar_service, calendar_id, search, ignore_availability, max_results
-    ):
+    def __init__(self, calendar_service, calendar_id, search, ignore_availability):
         """Set up how we are going to search the google calendar."""
         self.calendar_service = calendar_service
         self.calendar_id = calendar_id
         self.search = search
         self.ignore_availability = ignore_availability
-        self.max_results = max_results
         self.event = None
 
     def _prepare_query(self):
-        # pylint: disable=import-error
-        from httplib2 import ServerNotFoundError
-
         try:
             service = self.calendar_service.get()
         except ServerNotFoundError:
@@ -136,8 +126,8 @@ class GoogleCalendarData:
             return None, None
         params = dict(DEFAULT_GOOGLE_SEARCH_PARAMS)
         params["calendarId"] = self.calendar_id
-        if self.max_results:
-            params["maxResults"] = self.max_results
+        params["maxResults"] = 100  # Page size
+
         if self.search:
             params["q"] = self.search
 
@@ -151,18 +141,30 @@ class GoogleCalendarData:
         params["timeMin"] = start_date.isoformat("T")
         params["timeMax"] = end_date.isoformat("T")
 
+        event_list = []
         events = await hass.async_add_executor_job(service.events)
+        page_token = None
+        while True:
+            page_token = await self.async_get_events_page(
+                hass, events, params, page_token, event_list
+            )
+            if not page_token:
+                break
+        return event_list
+
+    async def async_get_events_page(self, hass, events, params, page_token, event_list):
+        """Get a page of events in a specific time frame."""
+        params["pageToken"] = page_token
         result = await hass.async_add_executor_job(events.list(**params).execute)
 
         items = result.get("items", [])
-        event_list = []
         for item in items:
-            if not self.ignore_availability and "transparency" in item.keys():
+            if not self.ignore_availability and "transparency" in item:
                 if item["transparency"] == "opaque":
                     event_list.append(item)
             else:
                 event_list.append(item)
-        return event_list
+        return result.get("nextPageToken")
 
     @Throttle(MIN_TIME_BETWEEN_UPDATES)
     def update(self):
@@ -179,7 +181,7 @@ class GoogleCalendarData:
 
         new_event = None
         for item in items:
-            if not self.ignore_availability and "transparency" in item.keys():
+            if not self.ignore_availability and "transparency" in item:
                 if item["transparency"] == "opaque":
                     new_event = item
                     break

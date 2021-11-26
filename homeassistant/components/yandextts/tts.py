@@ -1,5 +1,6 @@
 """Support for the yandex speechkit tts  service."""
 import asyncio
+from http import HTTPStatus
 import logging
 
 import aiohttp
@@ -79,7 +80,7 @@ PLATFORM_SCHEMA = PLATFORM_SCHEMA.extend(
 SUPPORTED_OPTIONS = [CONF_CODEC, CONF_VOICE, CONF_EMOTION, CONF_SPEED]
 
 
-async def async_get_engine(hass, config):
+async def async_get_engine(hass, config, discovery_info=None):
     """Set up VoiceRSS speech component."""
     return YandexSpeechKitProvider(hass, config)
 
@@ -120,7 +121,7 @@ class YandexSpeechKitProvider(Provider):
         options = options or {}
 
         try:
-            with async_timeout.timeout(10):
+            async with async_timeout.timeout(10):
                 url_param = {
                     "text": message,
                     "lang": actual_language,
@@ -133,7 +134,7 @@ class YandexSpeechKitProvider(Provider):
 
                 request = await websession.get(YANDEX_API_URL, params=url_param)
 
-                if request.status != 200:
+                if request.status != HTTPStatus.OK:
                     _LOGGER.error(
                         "Error %d on load URL %s", request.status, request.url
                     )

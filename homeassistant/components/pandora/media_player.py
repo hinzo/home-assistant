@@ -6,8 +6,10 @@ import re
 import shutil
 import signal
 
+import pexpect
+
 from homeassistant import util
-from homeassistant.components.media_player import MediaPlayerDevice
+from homeassistant.components.media_player import MediaPlayerEntity
 from homeassistant.components.media_player.const import (
     MEDIA_TYPE_MUSIC,
     SUPPORT_NEXT_TRACK,
@@ -70,12 +72,11 @@ def setup_platform(hass, config, add_entities, discovery_info=None):
     add_entities([pandora])
 
 
-class PandoraMediaPlayer(MediaPlayerDevice):
+class PandoraMediaPlayer(MediaPlayerEntity):
     """A media player that uses the Pianobar interface to Pandora."""
 
     def __init__(self, name):
         """Initialize the Pandora device."""
-        MediaPlayerDevice.__init__(self)
         self._name = name
         self._player_state = STATE_OFF
         self._station = ""
@@ -86,11 +87,6 @@ class PandoraMediaPlayer(MediaPlayerDevice):
         self._time_remaining = 0
         self._media_duration = 0
         self._pianobar = None
-
-    @property
-    def should_poll(self):
-        """Return the polling state."""
-        return True
 
     @property
     def name(self):
@@ -104,8 +100,6 @@ class PandoraMediaPlayer(MediaPlayerDevice):
 
     def turn_on(self):
         """Turn the media player on."""
-        import pexpect
-
         if self._player_state != STATE_OFF:
             return
         self._pianobar = pexpect.spawn("pianobar")
@@ -119,8 +113,8 @@ class PandoraMediaPlayer(MediaPlayerDevice):
         elif mode == 2:
             _LOGGER.warning(
                 "The pianobar client is not configured to log in. "
-                "Please create a config file for it as described at "
-                "https://home-assistant.io/components/media_player.pandora/"
+                "Please create a configuration file for it as described at "
+                "https://www.home-assistant.io/integrations/pandora/"
             )
             # pass through the email/password prompts to quit cleanly
             self._pianobar.sendcontrol("m")
@@ -136,8 +130,6 @@ class PandoraMediaPlayer(MediaPlayerDevice):
 
     def turn_off(self):
         """Turn the media player off."""
-        import pexpect
-
         if self._pianobar is None:
             _LOGGER.info("Pianobar subprocess already stopped")
             return
@@ -226,8 +218,6 @@ class PandoraMediaPlayer(MediaPlayerDevice):
 
     def _send_station_list_command(self):
         """Send a station list command."""
-        import pexpect
-
         self._pianobar.send("s")
         try:
             self._pianobar.expect("Select station:", timeout=1)
@@ -248,8 +238,6 @@ class PandoraMediaPlayer(MediaPlayerDevice):
 
     def _query_for_playing_status(self):
         """Query system for info about current track."""
-        import pexpect
-
         self._clear_buffer()
         self._pianobar.send("i")
         try:
@@ -286,8 +274,7 @@ class PandoraMediaPlayer(MediaPlayerDevice):
 
     def _update_current_station(self, response):
         """Update current station."""
-        station_match = re.search(STATION_PATTERN, response)
-        if station_match:
+        if station_match := re.search(STATION_PATTERN, response):
             self._station = station_match.group(1)
             _LOGGER.debug("Got station as: %s", self._station)
         else:
@@ -295,8 +282,7 @@ class PandoraMediaPlayer(MediaPlayerDevice):
 
     def _update_current_song(self, response):
         """Update info about current song."""
-        song_match = re.search(CURRENT_SONG_PATTERN, response)
-        if song_match:
+        if song_match := re.search(CURRENT_SONG_PATTERN, response):
             (
                 self._media_title,
                 self._media_artist,
@@ -355,8 +341,7 @@ class PandoraMediaPlayer(MediaPlayerDevice):
         _LOGGER.debug("Getting stations: %s", station_lines)
         self._stations = []
         for line in station_lines.split("\r\n"):
-            match = re.search(r"\d+\).....(.+)", line)
-            if match:
+            if match := re.search(r"\d+\).....(.+)", line):
                 station = match.group(1).strip()
                 _LOGGER.debug("Found station %s", station)
                 self._stations.append(station)
@@ -372,8 +357,6 @@ class PandoraMediaPlayer(MediaPlayerDevice):
         This is necessary because there are a bunch of 00:00 in the buffer
 
         """
-        import pexpect
-
         try:
             while not self._pianobar.expect(".+", timeout=0.1):
                 pass
@@ -392,6 +375,6 @@ def _pianobar_exists():
     _LOGGER.warning(
         "The Pandora integration depends on the Pianobar client, which "
         "cannot be found. Please install using instructions at "
-        "https://home-assistant.io/components/media_player.pandora/"
+        "https://www.home-assistant.io/integrations/media_player.pandora/"
     )
     return False
