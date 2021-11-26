@@ -21,8 +21,9 @@ class TestVultr(unittest.TestCase):
         """Initialize values for this test case class."""
         self.hass = get_test_home_assistant()
         self.config = VALID_CONFIG
+        self.addCleanup(self.tear_down_cleanup)
 
-    def tearDown(self):  # pylint: disable=invalid-name
+    def tear_down_cleanup(self):
         """Stop everything that we started."""
         self.hass.stop()
 
@@ -31,7 +32,7 @@ class TestVultr(unittest.TestCase):
         """Test successful setup."""
         with patch(
             "vultr.Vultr.server_list",
-            return_value=json.loads(load_fixture("vultr_server_list.json")),
+            return_value=json.loads(load_fixture("server_list.json", "vultr")),
         ):
             response = vultr.setup(self.hass, self.config)
         assert response

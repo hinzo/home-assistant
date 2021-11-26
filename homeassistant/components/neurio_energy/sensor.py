@@ -1,15 +1,28 @@
 """Support for monitoring a Neurio energy sensor."""
-import logging
-from datetime import timedelta
+from __future__ import annotations
 
+from datetime import timedelta
+import logging
+
+import neurio
 import requests.exceptions
 import voluptuous as vol
 
-from homeassistant.components.sensor import PLATFORM_SCHEMA
-from homeassistant.const import CONF_API_KEY, POWER_WATT, ENERGY_KILO_WATT_HOUR
-from homeassistant.helpers.entity import Entity
-from homeassistant.util import Throttle
+from homeassistant.components.sensor import (
+    PLATFORM_SCHEMA,
+    STATE_CLASS_MEASUREMENT,
+    STATE_CLASS_TOTAL_INCREASING,
+    SensorEntity,
+)
+from homeassistant.const import (
+    CONF_API_KEY,
+    DEVICE_CLASS_ENERGY,
+    DEVICE_CLASS_POWER,
+    ENERGY_KILO_WATT_HOUR,
+    POWER_WATT,
+)
 import homeassistant.helpers.config_validation as cv
+from homeassistant.util import Throttle
 import homeassistant.util.dt as dt_util
 
 _LOGGER = logging.getLogger(__name__)
@@ -32,7 +45,7 @@ PLATFORM_SCHEMA = PLATFORM_SCHEMA.extend(
     {
         vol.Required(CONF_API_KEY): cv.string,
         vol.Required(CONF_API_SECRET): cv.string,
-        vol.Optional(CONF_SENSOR_ID): cv.string,
+        vol.Required(CONF_SENSOR_ID): cv.string,
     }
 )
 
@@ -69,8 +82,6 @@ class NeurioData:
 
     def __init__(self, api_key, api_secret, sensor_id):
         """Initialize the data."""
-        import neurio
-
         self.api_key = api_key
         self.api_secret = api_secret
         self.sensor_id = sensor_id
@@ -82,14 +93,6 @@ class NeurioData:
 
         neurio_tp = neurio.TokenProvider(key=api_key, secret=api_secret)
         self.neurio_client = neurio.Client(token_provider=neurio_tp)
-
-        if not self.sensor_id:
-            user_info = self.neurio_client.get_user_information()
-            _LOGGER.warning(
-                "Sensor ID auto-detected: %s",
-                user_info["locations"][0]["sensors"][0]["sensorId"],
-            )
-            self.sensor_id = user_info["locations"][0]["sensors"][0]["sensorId"]
 
     @property
     def daily_usage(self):
@@ -132,7 +135,7 @@ class NeurioData:
         self._daily_usage = round(kwh, 2)
 
 
-class NeurioEnergy(Entity):
+class NeurioEnergy(SensorEntity):
     """Implementation of a Neurio energy sensor."""
 
     def __init__(self, data, name, sensor_type, update_call):
@@ -145,8 +148,12 @@ class NeurioEnergy(Entity):
 
         if sensor_type == ACTIVE_TYPE:
             self._unit_of_measurement = POWER_WATT
+            self._attr_device_class = DEVICE_CLASS_POWER
+            self._attr_state_class = STATE_CLASS_MEASUREMENT
         elif sensor_type == DAILY_TYPE:
             self._unit_of_measurement = ENERGY_KILO_WATT_HOUR
+            self._attr_device_class = DEVICE_CLASS_ENERGY
+            self._attr_state_class = STATE_CLASS_TOTAL_INCREASING
 
     @property
     def name(self):
@@ -154,12 +161,12 @@ class NeurioEnergy(Entity):
         return self._name
 
     @property
-    def state(self):
+    def native_value(self):
         """Return the state of the sensor."""
         return self._state
 
     @property
-    def unit_of_measurement(self):
+    def native_unit_of_measurement(self):
         """Return the unit of measurement of this entity, if any."""
         return self._unit_of_measurement
 

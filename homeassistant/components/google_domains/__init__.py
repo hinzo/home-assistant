@@ -7,8 +7,8 @@ import aiohttp
 import async_timeout
 import voluptuous as vol
 
-import homeassistant.helpers.config_validation as cv
 from homeassistant.const import CONF_DOMAIN, CONF_PASSWORD, CONF_TIMEOUT, CONF_USERNAME
+import homeassistant.helpers.config_validation as cv
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -17,8 +17,6 @@ DOMAIN = "google_domains"
 INTERVAL = timedelta(minutes=5)
 
 DEFAULT_TIMEOUT = 10
-
-UPDATE_URL = "https://{}:{}@domains.google.com/nic/update"
 
 CONFIG_SCHEMA = vol.Schema(
     {
@@ -62,12 +60,12 @@ async def async_setup(hass, config):
 
 async def _update_google_domains(hass, session, domain, user, password, timeout):
     """Update Google Domains."""
-    url = UPDATE_URL.format(user, password)
+    url = f"https://{user}:{password}@domains.google.com/nic/update"
 
     params = {"hostname": domain}
 
     try:
-        with async_timeout.timeout(timeout):
+        async with async_timeout.timeout(timeout):
             resp = await session.get(url, params=params)
             body = await resp.text()
 

@@ -2,11 +2,9 @@
   "domain": "stream",
   "name": "Stream",
   "documentation": "https://www.home-assistant.io/integrations/stream",
-  "requirements": [
-    "av==6.1.2"
-  ],
-  "dependencies": [
-    "http"
-  ],
-  "codeowners": ["@hunterjm"]
+  "requirements": ["ha-av==8.0.4-rc.1"],
+  "dependencies": ["http"],
+  "codeowners": ["@hunterjm", "@uvjustin", "@allenporter"],
+  "quality_scale": "internal",
+  "iot_class": "local_push"
 }

@@ -2,11 +2,13 @@
 import binascii
 import logging
 
+from pysnmp.entity import config as cfg
+from pysnmp.entity.rfc3413.oneliner import cmdgen
 import voluptuous as vol
 
 from homeassistant.components.device_tracker import (
     DOMAIN,
-    PLATFORM_SCHEMA,
+    PLATFORM_SCHEMA as PARENT_PLATFORM_SCHEMA,
     DeviceScanner,
 )
 from homeassistant.const import CONF_HOST
@@ -22,7 +24,7 @@ from .const import (
 
 _LOGGER = logging.getLogger(__name__)
 
-PLATFORM_SCHEMA = PLATFORM_SCHEMA.extend(
+PLATFORM_SCHEMA = PARENT_PLATFORM_SCHEMA.extend(
     {
         vol.Required(CONF_BASEOID): cv.string,
         vol.Required(CONF_HOST): cv.string,
@@ -45,8 +47,6 @@ class SnmpScanner(DeviceScanner):
 
     def __init__(self, config):
         """Initialize the scanner."""
-        from pysnmp.entity.rfc3413.oneliner import cmdgen
-        from pysnmp.entity import config as cfg
 
         self.snmp = cmdgen.CommandGenerator()
 
@@ -86,8 +86,7 @@ class SnmpScanner(DeviceScanner):
         if not self.success_init:
             return False
 
-        data = self.get_snmp_data()
-        if not data:
+        if not (data := self.get_snmp_data()):
             return False
 
         self.last_results = data

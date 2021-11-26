@@ -8,7 +8,7 @@ import voluptuous as vol
 from homeassistant.components.switch import (
     ENTITY_ID_FORMAT,
     PLATFORM_SCHEMA,
-    SwitchDevice,
+    SwitchEntity,
 )
 from homeassistant.const import (
     CONF_COMMAND_OFF,
@@ -16,9 +16,9 @@ from homeassistant.const import (
     CONF_COMMAND_STATE,
     CONF_NAME,
     CONF_PORT,
-    CONF_TIMEOUT,
     CONF_RESOURCE,
     CONF_SWITCHES,
+    CONF_TIMEOUT,
     CONF_VALUE_TEMPLATE,
 )
 import homeassistant.helpers.config_validation as cv
@@ -81,7 +81,7 @@ def setup_platform(hass, config, add_entities, discovery_info=None):
     add_entities(switches)
 
 
-class TelnetSwitch(SwitchDevice):
+class TelnetSwitch(SwitchEntity):
     """Representation of a switch that can be toggled using telnet commands."""
 
     def __init__(
@@ -157,9 +157,11 @@ class TelnetSwitch(SwitchDevice):
         self._telnet_command(self._command_on)
         if self.assumed_state:
             self._state = True
+            self.schedule_update_ha_state()
 
     def turn_off(self, **kwargs):
         """Turn the device off."""
         self._telnet_command(self._command_off)
         if self.assumed_state:
             self._state = False
+            self.schedule_update_ha_state()

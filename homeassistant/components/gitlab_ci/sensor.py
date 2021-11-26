@@ -2,9 +2,10 @@
 from datetime import timedelta
 import logging
 
+from gitlab import Gitlab, GitlabAuthenticationError, GitlabGetError
 import voluptuous as vol
 
-from homeassistant.components.sensor import PLATFORM_SCHEMA
+from homeassistant.components.sensor import PLATFORM_SCHEMA, SensorEntity
 from homeassistant.const import (
     ATTR_ATTRIBUTION,
     CONF_NAME,
@@ -13,7 +14,6 @@ from homeassistant.const import (
     CONF_URL,
 )
 import homeassistant.helpers.config_validation as cv
-from homeassistant.helpers.entity import Entity
 from homeassistant.util import Throttle
 
 _LOGGER = logging.getLogger(__name__)
@@ -65,7 +65,7 @@ def setup_platform(hass, config, add_entities, discovery_info=None):
     add_entities([GitLabSensor(_gitlab_data, _name)], True)
 
 
-class GitLabSensor(Entity):
+class GitLabSensor(SensorEntity):
     """Representation of a GitLab sensor."""
 
     def __init__(self, gitlab_data, name):
@@ -88,7 +88,7 @@ class GitLabSensor(Entity):
         return self._name
 
     @property
-    def state(self):
+    def native_value(self):
         """Return the state of the sensor."""
         return self._state
 
@@ -98,7 +98,7 @@ class GitLabSensor(Entity):
         return self._available
 
     @property
-    def device_state_attributes(self):
+    def extra_state_attributes(self):
         """Return the state attributes."""
         return {
             ATTR_ATTRIBUTION: ATTRIBUTION,
@@ -141,12 +141,10 @@ class GitLabData:
 
     def __init__(self, gitlab_id, priv_token, interval, url):
         """Fetch data from GitLab API for most recent CI job."""
-        import gitlab
 
         self._gitlab_id = gitlab_id
-        self._gitlab = gitlab.Gitlab(url, private_token=priv_token, per_page=1)
+        self._gitlab = Gitlab(url, private_token=priv_token, per_page=1)
         self._gitlab.auth()
-        self._gitlab_exceptions = gitlab.exceptions
         self.update = Throttle(interval)(self._update)
 
         self.available = False
@@ -174,9 +172,9 @@ class GitLabData:
             self.build_id = _last_job.attributes.get("id")
             self.branch = _last_job.attributes.get("ref")
             self.available = True
-        except self._gitlab_exceptions.GitlabAuthenticationError as erra:
+        except GitlabAuthenticationError as erra:
             _LOGGER.error("Authentication Error: %s", erra)
             self.available = False
-        except self._gitlab_exceptions.GitlabGetError as errg:
+        except GitlabGetError as errg:
             _LOGGER.error("Project Not Found: %s", errg)
             self.available = False

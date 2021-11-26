@@ -1,8 +1,5 @@
 """Support for Spider thermostats."""
-
-import logging
-
-from homeassistant.components.climate import ClimateDevice
+from homeassistant.components.climate import ClimateEntity
 from homeassistant.components.climate.const import (
     HVAC_MODE_COOL,
     HVAC_MODE_HEAT,
@@ -11,12 +8,9 @@ from homeassistant.components.climate.const import (
     SUPPORT_TARGET_TEMPERATURE,
 )
 from homeassistant.const import ATTR_TEMPERATURE, TEMP_CELSIUS
+from homeassistant.helpers.entity import DeviceInfo
 
-from . import DOMAIN as SPIDER_DOMAIN
-
-SUPPORT_FAN = ["Auto", "Low", "Medium", "High", "Boost 10", "Boost 20", "Boost 30"]
-
-SUPPORT_HVAC = [HVAC_MODE_HEAT, HVAC_MODE_COOL]
+from .const import DOMAIN
 
 HA_STATE_TO_SPIDER = {
     HVAC_MODE_COOL: "Cool",
@@ -26,38 +20,49 @@ HA_STATE_TO_SPIDER = {
 
 SPIDER_STATE_TO_HA = {value: key for key, value in HA_STATE_TO_SPIDER.items()}
 
-_LOGGER = logging.getLogger(__name__)
+
+async def async_setup_entry(hass, config, async_add_entities):
+    """Initialize a Spider thermostat."""
+    api = hass.data[DOMAIN][config.entry_id]
+
+    async_add_entities(
+        [
+            SpiderThermostat(api, entity)
+            for entity in await hass.async_add_executor_job(api.get_thermostats)
+        ]
+    )
 
 
-def setup_platform(hass, config, add_entities, discovery_info=None):
-    """Set up the Spider thermostat."""
-    if discovery_info is None:
-        return
-
-    devices = [
-        SpiderThermostat(hass.data[SPIDER_DOMAIN]["controller"], device)
-        for device in hass.data[SPIDER_DOMAIN]["thermostats"]
-    ]
-    add_entities(devices, True)
-
-
-class SpiderThermostat(ClimateDevice):
+class SpiderThermostat(ClimateEntity):
     """Representation of a thermostat."""
 
     def __init__(self, api, thermostat):
         """Initialize the thermostat."""
         self.api = api
         self.thermostat = thermostat
+        self.support_fan = thermostat.fan_speed_values
+        self.support_hvac = []
+        for operation_value in thermostat.operation_values:
+            if operation_value in SPIDER_STATE_TO_HA:
+                self.support_hvac.append(SPIDER_STATE_TO_HA[operation_value])
+
+    @property
+    def device_info(self) -> DeviceInfo:
+        """Return the device_info of the device."""
+        return DeviceInfo(
+            configuration_url="https://mijn.ithodaalderop.nl/",
+            identifiers={(DOMAIN, self.thermostat.id)},
+            manufacturer=self.thermostat.manufacturer,
+            model=self.thermostat.model,
+            name=self.thermostat.name,
+        )
 
     @property
     def supported_features(self):
         """Return the list of supported features."""
-        supports = SUPPORT_TARGET_TEMPERATURE
-
         if self.thermostat.has_fan_mode:
-            supports |= SUPPORT_FAN_MODE
-
-        return supports
+            return SUPPORT_TARGET_TEMPERATURE | SUPPORT_FAN_MODE
+        return SUPPORT_TARGET_TEMPERATURE
 
     @property
     def unique_id(self):
@@ -107,12 +112,11 @@ class SpiderThermostat(ClimateDevice):
     @property
     def hvac_modes(self):
         """Return the list of available operation modes."""
-        return SUPPORT_HVAC
+        return self.support_hvac
 
     def set_temperature(self, **kwargs):
         """Set new target temperature."""
-        temperature = kwargs.get(ATTR_TEMPERATURE)
-        if temperature is None:
+        if (temperature := kwargs.get(ATTR_TEMPERATURE)) is None:
             return
 
         self.thermostat.set_temperature(temperature)
@@ -133,7 +137,7 @@ class SpiderThermostat(ClimateDevice):
     @property
     def fan_modes(self):
         """List of available fan modes."""
-        return SUPPORT_FAN
+        return self.support_fan
 
     def update(self):
         """Get the latest data."""

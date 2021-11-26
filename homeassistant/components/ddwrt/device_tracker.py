@@ -1,4 +1,5 @@
 """Support for DD-WRT routers."""
+from http import HTTPStatus
 import logging
 import re
 
@@ -7,7 +8,7 @@ import voluptuous as vol
 
 from homeassistant.components.device_tracker import (
     DOMAIN,
-    PLATFORM_SCHEMA,
+    PLATFORM_SCHEMA as PARENT_PLATFORM_SCHEMA,
     DeviceScanner,
 )
 from homeassistant.const import (
@@ -29,7 +30,7 @@ DEFAULT_VERIFY_SSL = True
 CONF_WIRELESS_ONLY = "wireless_only"
 DEFAULT_WIRELESS_ONLY = True
 
-PLATFORM_SCHEMA = PLATFORM_SCHEMA.extend(
+PLATFORM_SCHEMA = PARENT_PLATFORM_SCHEMA.extend(
     {
         vol.Required(CONF_HOST): cv.string,
         vol.Required(CONF_PASSWORD): cv.string,
@@ -66,8 +67,7 @@ class DdWrtDeviceScanner(DeviceScanner):
 
         # Test the router is accessible
         url = f"{self.protocol}://{self.host}/Status_Wireless.live.asp"
-        data = self.get_ddwrt_data(url)
-        if not data:
+        if not self.get_ddwrt_data(url):
             raise ConnectionError("Cannot connect to DD-Wrt router")
 
     def scan_devices(self):
@@ -81,14 +81,11 @@ class DdWrtDeviceScanner(DeviceScanner):
         # If not initialised and not already scanned and not found.
         if device not in self.mac2name:
             url = f"{self.protocol}://{self.host}/Status_Lan.live.asp"
-            data = self.get_ddwrt_data(url)
 
-            if not data:
+            if not (data := self.get_ddwrt_data(url)):
                 return None
 
-            dhcp_leases = data.get("dhcp_leases", None)
-
-            if not dhcp_leases:
+            if not (dhcp_leases := data.get("dhcp_leases")):
                 return None
 
             # Remove leading and trailing quotes and spaces
@@ -112,21 +109,20 @@ class DdWrtDeviceScanner(DeviceScanner):
 
         Return boolean if scanning successful.
         """
-        _LOGGER.info("Checking ARP")
+        _LOGGER.debug("Checking ARP")
 
         endpoint = "Wireless" if self.wireless_only else "Lan"
         url = f"{self.protocol}://{self.host}/Status_{endpoint}.live.asp"
-        data = self.get_ddwrt_data(url)
 
-        if not data:
+        if not (data := self.get_ddwrt_data(url)):
             return False
 
         self.last_results = []
 
         if self.wireless_only:
-            active_clients = data.get("active_wireless", None)
+            active_clients = data.get("active_wireless")
         else:
-            active_clients = data.get("arp_table", None)
+            active_clients = data.get("arp_table")
         if not active_clients:
             return False
 
@@ -152,9 +148,9 @@ class DdWrtDeviceScanner(DeviceScanner):
         except requests.exceptions.Timeout:
             _LOGGER.exception("Connection to the router timed out")
             return
-        if response.status_code == 200:
+        if response.status_code == HTTPStatus.OK:
             return _parse_ddwrt_response(response.text)
-        if response.status_code == 401:
+        if response.status_code == HTTPStatus.UNAUTHORIZED:
             # Authentication error
             _LOGGER.exception(
                 "Failed to authenticate, check your username and password"

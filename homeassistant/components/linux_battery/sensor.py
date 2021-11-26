@@ -2,12 +2,12 @@
 import logging
 import os
 
+from batinfo import Batteries
 import voluptuous as vol
 
-from homeassistant.components.sensor import PLATFORM_SCHEMA
-from homeassistant.const import ATTR_NAME, CONF_NAME, DEVICE_CLASS_BATTERY
+from homeassistant.components.sensor import PLATFORM_SCHEMA, SensorEntity
+from homeassistant.const import ATTR_NAME, CONF_NAME, DEVICE_CLASS_BATTERY, PERCENTAGE
 import homeassistant.helpers.config_validation as cv
-from homeassistant.helpers.entity import Entity
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -67,20 +67,17 @@ def setup_platform(hass, config, add_entities, discovery_info=None):
     add_entities([LinuxBatterySensor(name, battery_id, system)], True)
 
 
-class LinuxBatterySensor(Entity):
+class LinuxBatterySensor(SensorEntity):
     """Representation of a Linux Battery sensor."""
 
     def __init__(self, name, battery_id, system):
         """Initialize the battery sensor."""
-        import batinfo
-
-        self._battery = batinfo.Batteries()
+        self._battery = Batteries()
 
         self._name = name
         self._battery_stat = None
         self._battery_id = battery_id - 1
         self._system = system
-        self._unit_of_measurement = "%"
 
     @property
     def name(self):
@@ -93,17 +90,17 @@ class LinuxBatterySensor(Entity):
         return DEVICE_CLASS_BATTERY
 
     @property
-    def state(self):
+    def native_value(self):
         """Return the state of the sensor."""
         return self._battery_stat.capacity
 
     @property
-    def unit_of_measurement(self):
+    def native_unit_of_measurement(self):
         """Return the unit the value is expressed in."""
-        return self._unit_of_measurement
+        return PERCENTAGE
 
     @property
-    def device_state_attributes(self):
+    def extra_state_attributes(self):
         """Return the state attributes of the sensor."""
         if self._system == "android":
             return {

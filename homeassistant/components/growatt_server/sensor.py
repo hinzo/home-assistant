@@ -1,150 +1,156 @@
 """Read status of growatt inverters."""
-import re
+from __future__ import annotations
+
+import datetime
 import json
 import logging
-import datetime
 
 import growattServer
-import voluptuous as vol
 
-from homeassistant.util import Throttle
-from homeassistant.helpers.entity import Entity
-import homeassistant.helpers.config_validation as cv
-from homeassistant.components.sensor import PLATFORM_SCHEMA
-from homeassistant.const import CONF_NAME, CONF_USERNAME, CONF_PASSWORD
+from homeassistant.components.sensor import SensorEntity
+from homeassistant.const import CONF_NAME, CONF_PASSWORD, CONF_URL, CONF_USERNAME
+from homeassistant.helpers.entity import DeviceInfo
+from homeassistant.util import Throttle, dt
+
+from .const import (
+    CONF_PLANT_ID,
+    DEFAULT_PLANT_ID,
+    DEFAULT_URL,
+    DOMAIN,
+    LOGIN_INVALID_AUTH_CODE,
+)
+from .sensor_types.inverter import INVERTER_SENSOR_TYPES
+from .sensor_types.mix import MIX_SENSOR_TYPES
+from .sensor_types.sensor_entity_description import GrowattSensorEntityDescription
+from .sensor_types.storage import STORAGE_SENSOR_TYPES
+from .sensor_types.tlx import TLX_SENSOR_TYPES
+from .sensor_types.total import TOTAL_SENSOR_TYPES
 
 _LOGGER = logging.getLogger(__name__)
 
-CONF_PLANT_ID = "plant_id"
-DEFAULT_PLANT_ID = "0"
-DEFAULT_NAME = "Growatt"
-SCAN_INTERVAL = datetime.timedelta(minutes=5)
-
-TOTAL_SENSOR_TYPES = {
-    "total_money_today": ("Total money today", "€", "plantMoneyText", None),
-    "total_money_total": ("Money lifetime", "€", "totalMoneyText", None),
-    "total_energy_today": ("Energy Today", "kWh", "todayEnergy", "power"),
-    "total_output_power": ("Output Power", "W", "invTodayPpv", "power"),
-    "total_energy_output": ("Lifetime energy output", "kWh", "totalEnergy", "power"),
-    "total_maximum_output": ("Maximum power", "W", "nominalPower", "power"),
-}
-
-INVERTER_SENSOR_TYPES = {
-    "inverter_energy_today": ("Energy today", "kWh", "e_today", "power"),
-    "inverter_energy_total": ("Lifetime energy output", "kWh", "e_total", "power"),
-    "inverter_voltage_input_1": ("Input 1 voltage", "V", "vpv1", None),
-    "inverter_amperage_input_1": ("Input 1 Amperage", "A", "ipv1", None),
-    "inverter_wattage_input_1": ("Input 1 Wattage", "W", "ppv1", "power"),
-    "inverter_voltage_input_2": ("Input 2 voltage", "V", "vpv2", None),
-    "inverter_amperage_input_2": ("Input 2 Amperage", "A", "ipv2", None),
-    "inverter_wattage_input_2": ("Input 2 Wattage", "W", "ppv2", "power"),
-    "inverter_voltage_input_3": ("Input 3 voltage", "V", "vpv3", None),
-    "inverter_amperage_input_3": ("Input 3 Amperage", "A", "ipv3", None),
-    "inverter_wattage_input_3": ("Input 3 Wattage", "W", "ppv3", "power"),
-    "inverter_internal_wattage": ("Internal wattage", "W", "ppv", "power"),
-    "inverter_reactive_voltage": ("Reactive voltage", "V", "vacr", None),
-    "inverter_inverter_reactive_amperage": ("Reactive amperage", "A", "iacr", None),
-    "inverter_frequency": ("AC frequency", "Hz", "fac", None),
-    "inverter_current_wattage": ("Output power", "W", "pac", "power"),
-    "inverter_current_reactive_wattage": ("Reactive wattage", "W", "pacr", "power"),
-}
-
-SENSOR_TYPES = {**TOTAL_SENSOR_TYPES, **INVERTER_SENSOR_TYPES}
-
-PLATFORM_SCHEMA = PLATFORM_SCHEMA.extend(
-    {
-        vol.Optional(CONF_NAME, default=DEFAULT_NAME): cv.string,
-        vol.Optional(CONF_PLANT_ID, default=DEFAULT_PLANT_ID): cv.string,
-        vol.Required(CONF_USERNAME): cv.string,
-        vol.Required(CONF_PASSWORD): cv.string,
-    }
-)
+SCAN_INTERVAL = datetime.timedelta(minutes=1)
 
 
-def setup_platform(hass, config, add_entities, discovery_info=None):
-    """Set up the Growatt sensor."""
-    username = config[CONF_USERNAME]
-    password = config[CONF_PASSWORD]
+def get_device_list(api, config):
+    """Retrieve the device list for the selected plant."""
     plant_id = config[CONF_PLANT_ID]
-    name = config[CONF_NAME]
-
-    api = growattServer.GrowattApi()
 
     # Log in to api and fetch first plant if no plant id is defined.
-    login_response = api.login(username, password)
-    if not login_response["success"] and login_response["errCode"] == "102":
-        _LOGGER.error("Username or Password may be incorrect!")
+    login_response = api.login(config[CONF_USERNAME], config[CONF_PASSWORD])
+    if (
+        not login_response["success"]
+        and login_response["msg"] == LOGIN_INVALID_AUTH_CODE
+    ):
+        _LOGGER.error("Username, Password or URL may be incorrect!")
         return
-    user_id = login_response["userId"]
+    user_id = login_response["user"]["id"]
     if plant_id == DEFAULT_PLANT_ID:
         plant_info = api.plant_list(user_id)
         plant_id = plant_info["data"][0]["plantId"]
 
-    # Get a list of inverters for specified plant to add sensors for.
-    inverters = api.inverter_list(plant_id)
-    entities = []
-    probe = GrowattData(api, username, password, plant_id, True)
-    for sensor in TOTAL_SENSOR_TYPES:
-        entities.append(
-            GrowattInverter(probe, f"{name} Total", sensor, f"{plant_id}-{sensor}")
-        )
+    # Get a list of devices for specified plant to add sensors for.
+    devices = api.device_list(plant_id)
+    return [devices, plant_id]
 
-    # Add sensors for each inverter in the specified plant.
-    for inverter in inverters:
-        probe = GrowattData(api, username, password, inverter["deviceSn"], False)
-        for sensor in INVERTER_SENSOR_TYPES:
-            entities.append(
-                GrowattInverter(
-                    probe,
-                    f"{inverter['deviceAilas']}",
-                    sensor,
-                    f"{inverter['deviceSn']}-{sensor}",
-                )
+
+async def async_setup_entry(hass, config_entry, async_add_entities):
+    """Set up the Growatt sensor."""
+    config = config_entry.data
+    username = config[CONF_USERNAME]
+    password = config[CONF_PASSWORD]
+    url = config.get(CONF_URL, DEFAULT_URL)
+    name = config[CONF_NAME]
+
+    api = growattServer.GrowattApi()
+    api.server_url = url
+
+    devices, plant_id = await hass.async_add_executor_job(get_device_list, api, config)
+
+    probe = GrowattData(api, username, password, plant_id, "total")
+    entities = [
+        GrowattInverter(
+            probe,
+            name=f"{name} Total",
+            unique_id=f"{plant_id}-{description.key}",
+            description=description,
+        )
+        for description in TOTAL_SENSOR_TYPES
+    ]
+
+    # Add sensors for each device in the specified plant.
+    for device in devices:
+        probe = GrowattData(
+            api, username, password, device["deviceSn"], device["deviceType"]
+        )
+        sensor_descriptions = ()
+        if device["deviceType"] == "inverter":
+            sensor_descriptions = INVERTER_SENSOR_TYPES
+        elif device["deviceType"] == "tlx":
+            probe.plant_id = plant_id
+            sensor_descriptions = TLX_SENSOR_TYPES
+        elif device["deviceType"] == "storage":
+            probe.plant_id = plant_id
+            sensor_descriptions = STORAGE_SENSOR_TYPES
+        elif device["deviceType"] == "mix":
+            probe.plant_id = plant_id
+            sensor_descriptions = MIX_SENSOR_TYPES
+        else:
+            _LOGGER.debug(
+                "Device type %s was found but is not supported right now",
+                device["deviceType"],
             )
 
-    add_entities(entities, True)
+        entities.extend(
+            [
+                GrowattInverter(
+                    probe,
+                    name=f"{device['deviceAilas']}",
+                    unique_id=f"{device['deviceSn']}-{description.key}",
+                    description=description,
+                )
+                for description in sensor_descriptions
+            ]
+        )
+
+    async_add_entities(entities, True)
 
 
-class GrowattInverter(Entity):
+class GrowattInverter(SensorEntity):
     """Representation of a Growatt Sensor."""
 
-    def __init__(self, probe, name, sensor, unique_id):
+    entity_description: GrowattSensorEntityDescription
+
+    def __init__(
+        self, probe, name, unique_id, description: GrowattSensorEntityDescription
+    ):
         """Initialize a PVOutput sensor."""
-        self.sensor = sensor
         self.probe = probe
-        self._name = name
-        self._state = None
-        self._unique_id = unique_id
+        self.entity_description = description
+
+        self._attr_name = f"{name} {description.name}"
+        self._attr_unique_id = unique_id
+        self._attr_icon = "mdi:solar-power"
+
+        self._attr_device_info = DeviceInfo(
+            identifiers={(DOMAIN, probe.device_id)},
+            manufacturer="Growatt",
+            name=name,
+        )
 
     @property
-    def name(self):
-        """Return the name of the sensor."""
-        return f"{self._name} {SENSOR_TYPES[self.sensor][0]}"
-
-    @property
-    def unique_id(self):
-        """Return the unique id of the sensor."""
-        return self._unique_id
-
-    @property
-    def icon(self):
-        """Return the icon of the sensor."""
-        return "mdi:solar-power"
-
-    @property
-    def state(self):
+    def native_value(self):
         """Return the state of the sensor."""
-        return self.probe.get_data(SENSOR_TYPES[self.sensor][2])
+        result = self.probe.get_data(self.entity_description.api_key)
+        if self.entity_description.precision is not None:
+            result = round(result, self.entity_description.precision)
+        return result
 
     @property
-    def device_class(self):
-        """Return the device class of the sensor."""
-        return SENSOR_TYPES[self.sensor][3]
-
-    @property
-    def unit_of_measurement(self):
-        """Return the unit of measurement of this entity, if any."""
-        return SENSOR_TYPES[self.sensor][1]
+    def native_unit_of_measurement(self) -> str | None:
+        """Return the unit of measurement of the sensor, if any."""
+        if self.entity_description.currency:
+            return self.probe.get_data("currency")
+        return super().native_unit_of_measurement
 
     def update(self):
         """Get the latest data from the Growat API and updates the state."""
@@ -154,12 +160,13 @@ class GrowattInverter(Entity):
 class GrowattData:
     """The class for handling data retrieval."""
 
-    def __init__(self, api, username, password, inverter_id, is_total=False):
+    def __init__(self, api, username, password, device_id, growatt_type):
         """Initialize the probe."""
 
-        self.is_total = is_total
+        self.growatt_type = growatt_type
         self.api = api
-        self.inverter_id = inverter_id
+        self.device_id = device_id
+        self.plant_id = None
         self.data = {}
         self.username = username
         self.password = password
@@ -168,19 +175,69 @@ class GrowattData:
     def update(self):
         """Update probe data."""
         self.api.login(self.username, self.password)
-        _LOGGER.debug("Updating data for %s", self.inverter_id)
+        _LOGGER.debug("Updating data for %s (%s)", self.device_id, self.growatt_type)
         try:
-            if self.is_total:
-                total_info = self.api.plant_info(self.inverter_id)
+            if self.growatt_type == "total":
+                total_info = self.api.plant_info(self.device_id)
                 del total_info["deviceList"]
-                # PlantMoneyText comes in as "3.1/€" remove anything that isn't part of the number
-                total_info["plantMoneyText"] = re.sub(
-                    r"[^\d.,]", "", total_info["plantMoneyText"]
-                )
+                # PlantMoneyText comes in as "3.1/€" split between value and currency
+                plant_money_text, currency = total_info["plantMoneyText"].split("/")
+                total_info["plantMoneyText"] = plant_money_text
+                total_info["currency"] = currency
                 self.data = total_info
-            else:
-                inverter_info = self.api.inverter_detail(self.inverter_id)
-                self.data = inverter_info["data"]
+            elif self.growatt_type == "inverter":
+                inverter_info = self.api.inverter_detail(self.device_id)
+                self.data = inverter_info
+            elif self.growatt_type == "tlx":
+                tlx_info = self.api.tlx_detail(self.device_id)
+                self.data = tlx_info["data"]
+            elif self.growatt_type == "storage":
+                storage_info_detail = self.api.storage_params(self.device_id)[
+                    "storageDetailBean"
+                ]
+                storage_energy_overview = self.api.storage_energy_overview(
+                    self.plant_id, self.device_id
+                )
+                self.data = {**storage_info_detail, **storage_energy_overview}
+            elif self.growatt_type == "mix":
+                mix_info = self.api.mix_info(self.device_id)
+                mix_totals = self.api.mix_totals(self.device_id, self.plant_id)
+                mix_system_status = self.api.mix_system_status(
+                    self.device_id, self.plant_id
+                )
+
+                mix_detail = self.api.mix_detail(self.device_id, self.plant_id)
+                # Get the chart data and work out the time of the last entry, use this as the last time data was published to the Growatt Server
+                mix_chart_entries = mix_detail["chartData"]
+                sorted_keys = sorted(mix_chart_entries)
+
+                # Create datetime from the latest entry
+                date_now = dt.now().date()
+                last_updated_time = dt.parse_time(str(sorted_keys[-1]))
+                combined_timestamp = datetime.datetime.combine(
+                    date_now, last_updated_time
+                )
+                # Convert datetime to UTC
+                combined_timestamp_utc = dt.as_utc(combined_timestamp)
+                mix_detail["lastdataupdate"] = combined_timestamp_utc.isoformat()
+
+                # Dashboard data is largely inaccurate for mix system but it is the only call with the ability to return the combined
+                # imported from grid value that is the combination of charging AND load consumption
+                dashboard_data = self.api.dashboard_data(self.plant_id)
+                # Dashboard values have units e.g. "kWh" as part of their returned string, so we remove it
+                dashboard_values_for_mix = {
+                    # etouser is already used by the results from 'mix_detail' so we rebrand it as 'etouser_combined'
+                    "etouser_combined": float(
+                        dashboard_data["etouser"].replace("kWh", "")
+                    )
+                }
+                self.data = {
+                    **mix_info,
+                    **mix_totals,
+                    **mix_system_status,
+                    **mix_detail,
+                    **dashboard_values_for_mix,
+                }
         except json.decoder.JSONDecodeError:
             _LOGGER.error("Unable to fetch data from Growatt server")
 
