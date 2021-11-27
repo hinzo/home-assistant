@@ -65,6 +65,9 @@ ARMING_NAME_STAY = "STAY"
 ARMING_NAME_AWAY = "AWAY"
 ARMING_NAME_NIGHT = "NIGHT"
 
+CONF_CODE_ARM_REQUIRED = "code_arm_required"
+CONF_CODE_DISARM_REQUIRED = "code_disarm_required"
+
 PLATFORM_SCHEMA = PARENT_PLATFORM_SCHEMA.extend(
     {
         vol.Required(CONF_URL): cv.string,
@@ -72,6 +75,8 @@ PLATFORM_SCHEMA = PARENT_PLATFORM_SCHEMA.extend(
         vol.Required(CONF_PRIVATE_KEY): cv.string,
         vol.Optional(CONF_CODE): cv.positive_int,
         vol.Optional(CONF_NAME, default=DEFAULT_NAME): cv.string,
+        vol.Optional(CONF_CODE_ARM_REQUIRED, default=False): cv.boolean,
+        vol.Optional(CONF_CODE_DISARM_REQUIRED, default=False): cv.boolean,
     }
 )
 
@@ -80,11 +85,15 @@ def setup_platform(hass, config, add_entities, discovery_info=None):
     """Set up Tuxedo control panel."""
     name = config.get(CONF_NAME)
     code = config.get(CONF_CODE)
+    code_arm_required = config.get(CONF_CODE_ARM_REQUIRED)
+    code_disarm_required = config.get(CONF_CODE_DISARM_REQUIRED)
     mac = config.get(CONF_MAC).replace(":", "-")
     private_key = config.get(CONF_PRIVATE_KEY)
     url = config.get(CONF_URL)
 
-    tuxedo = TuxedoPanel(name, code, mac, private_key, url)
+    tuxedo = TuxedoPanel(
+        name, code, code_arm_required, code_disarm_required, mac, private_key, url
+    )
     add_entities([tuxedo], True)
 
 
@@ -112,11 +121,15 @@ def _decrypt_data(data, key_string, iv_string):
 class TuxedoPanel(alarm.AlarmControlPanelEntity):
     """The Tuxedo panel definition."""
 
-    def __init__(self, name, code, mac, private_key, url):
+    def __init__(
+        self, name, code, code_arm_required, code_disarm_required, mac, private_key, url
+    ):
         """Initialize the Tuxedo status."""
 
         self._name = name
         self._code = str(code) if code else None
+        self._code_arm_required = code_arm_required
+        self._code_disarm_required = code_disarm_required
         self._mac = mac
         self._api_key_enc = private_key[0:64]
         self._api_iv_enc = private_key[64:]
@@ -143,8 +156,17 @@ class TuxedoPanel(alarm.AlarmControlPanelEntity):
     def code_format(self):
         """Regex for code format or None if no code is required."""
         if self._code is None:
+            # Tuxedo API only works with code for arming and disarming
             return alarm.FORMAT_NUMBER
-        return None
+        elif self._state == STATE_ALARM_DISARMED:
+            return alarm.FORMAT_NUMBER if self._code_arm_required else None
+        else:
+            return alarm.FORMAT_NUMBER if self._code_disarm_required else None
+
+    @property
+    def code_arm_required(self):
+        """Whether the code is required for arm actions."""
+        return self._code_arm_required
 
     @property
     def should_poll(self):
@@ -211,9 +233,20 @@ class TuxedoPanel(alarm.AlarmControlPanelEntity):
         return await self._async_api_request("/GetSecurityStatus", {"operation": "get"})
 
     async def _api_disarm_request(self, code=None):
+        codeToUse = code if (code or self._code_disarm_required) else self._code
+        if codeToUse is None:
+            _LOGGER.warn(
+                "code is missing for disarming, it must be provided either in configuration or user input"
+            )
+            return
+
         result = await self._async_api_request(
             "/AdvancedSecurity/DisarmWithCode",
-            {"pID": "1", "ucode": code or self._code, "operation": "set"},
+            {
+                "pID": "1",
+                "ucode": codeToUse,
+                "operation": "set",
+            },
         )
         _LOGGER.info("api_disarm_request result: %s", result)
         if result:
@@ -221,12 +254,19 @@ class TuxedoPanel(alarm.AlarmControlPanelEntity):
             self.async_schedule_update_ha_state()
 
     async def _api_arm_request(self, arm_name, code=None):
+        codeToUse = code if (code or self._code_arm_required) else self._code
+        if codeToUse is None:
+            _LOGGER.warn(
+                "code is missing for arming, it must be provided either in configuration or user input"
+            )
+            return
+
         result = await self._async_api_request(
             "/AdvancedSecurity/ArmWithCode",
             {
                 "arming": arm_name,
                 "pID": "1",
-                "ucode": code or self._code,
+                "ucode": codeToUse,
                 "operation": "set",
             },
         )
