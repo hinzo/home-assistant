@@ -549,16 +549,11 @@ homeassistant/components/traccar/* @ludeeus
 homeassistant/components/trace/* @home-assistant/core
 homeassistant/components/tractive/* @Danielhiversen @zhulik @bieniu
 homeassistant/components/trafikverket_train/* @endor-force
-<<<<<<< HEAD
-homeassistant/components/transmission/* @engrbm87
-homeassistant/components/tts/* @robbiet480
-homeassistant/components/tuxedo/* @hinzo
-=======
 homeassistant/components/trafikverket_weatherstation/* @endor-force
 homeassistant/components/transmission/* @engrbm87 @JPHutchins
 homeassistant/components/tts/* @pvizeli
+homeassistant/components/tuxedo/* @hinzo
 homeassistant/components/tuya/* @Tuya @zlinoliver @METISU @frenck
->>>>>>> 296b73874054eec31d91f0db1b9a625ad5d47c32
 homeassistant/components/twentemilieu/* @frenck
 homeassistant/components/twinkly/* @dr1rrb
 homeassistant/components/ubus/* @noltari

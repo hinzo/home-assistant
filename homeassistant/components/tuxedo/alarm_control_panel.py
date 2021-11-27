@@ -1,42 +1,46 @@
 """Interfaces with Tuxedo control panel."""
-import logging
-import random
-
-import base64
-import hmac
-import requests
-import voluptuous as vol
-import urllib
-import json
-import re
 import asyncio
-
+import base64
 from datetime import timedelta
 from hashlib import sha1
+import hmac
+import json
+import logging
+import random
+import re
+import urllib
+
 from Crypto.Cipher import AES
-from Crypto.Util.Padding import pad
-from Crypto.Util.Padding import unpad
-
+from Crypto.Util.Padding import pad, unpad
 from aiohttp.hdrs import CACHE_CONTROL, PRAGMA
+import requests
+import voluptuous as vol
 
-from homeassistant.core import callback
 import homeassistant.components.alarm_control_panel as alarm
-from homeassistant.components.alarm_control_panel import PLATFORM_SCHEMA
-from homeassistant.helpers.event import async_track_time_interval
+from homeassistant.components.alarm_control_panel import (
+    PLATFORM_SCHEMA as PARENT_PLATFORM_SCHEMA,
+)
+from homeassistant.components.alarm_control_panel.const import (
+    SUPPORT_ALARM_ARM_AWAY,
+    SUPPORT_ALARM_ARM_HOME,
+    SUPPORT_ALARM_ARM_NIGHT,
+)
 from homeassistant.const import (
     CONF_CODE,
-    CONF_URL,
-    CONF_NAME,
     CONF_MAC,
-    STATE_ALARM_PENDING,
-    STATE_ALARM_ARMING,
+    CONF_NAME,
+    CONF_URL,
     STATE_ALARM_ARMED_AWAY,
     STATE_ALARM_ARMED_HOME,
     STATE_ALARM_ARMED_NIGHT,
+    STATE_ALARM_ARMING,
     STATE_ALARM_DISARMED,
+    STATE_ALARM_PENDING,
     STATE_UNAVAILABLE,
 )
+from homeassistant.core import callback
 import homeassistant.helpers.config_validation as cv
+from homeassistant.helpers.event import async_track_time_interval
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -61,7 +65,7 @@ ARMING_NAME_STAY = "STAY"
 ARMING_NAME_AWAY = "AWAY"
 ARMING_NAME_NIGHT = "NIGHT"
 
-PLATFORM_SCHEMA = PLATFORM_SCHEMA.extend(
+PLATFORM_SCHEMA = PARENT_PLATFORM_SCHEMA.extend(
     {
         vol.Required(CONF_URL): cv.string,
         vol.Required(CONF_MAC): cv.string,
@@ -105,7 +109,7 @@ def _decrypt_data(data, key_string, iv_string):
     return str(decrypted, "utf-8")
 
 
-class TuxedoPanel(alarm.AlarmControlPanel):
+class TuxedoPanel(alarm.AlarmControlPanelEntity):
     """The Tuxedo panel definition."""
 
     def __init__(self, name, code, mac, private_key, url):
@@ -123,13 +127,11 @@ class TuxedoPanel(alarm.AlarmControlPanel):
         """Hookup registration callback."""
 
         @callback
-        def async_register(event_time=None):
-            result = self._api_request(
-                "/Registration/Register", {"mac": self._mac, "operation": "set"}
-            )
+        async def async_register(event_time=None):
+            result = await self._api_register(self._mac)
             _LOGGER.info("register result: %s", result)
 
-        async_register()
+        await async_register()
         async_track_time_interval(self.hass, async_register, REGISTER_INTERVAL)
 
     @property
@@ -154,10 +156,15 @@ class TuxedoPanel(alarm.AlarmControlPanel):
         """Return the state of the device."""
         return self._state
 
-    def update(self):
+    @property
+    def supported_features(self) -> int:
+        """Return the list of supported features."""
+        return SUPPORT_ALARM_ARM_HOME | SUPPORT_ALARM_ARM_AWAY | SUPPORT_ALARM_ARM_NIGHT
+
+    async def async_update(self):
         """Return the state of the device."""
         state = None
-        result = self._api_request("/GetSecurityStatus", {"operation": "get"})
+        result = await self._api_get_state()
         if result:
             _LOGGER.info("update result: %s", result)
             status_msg = result["Status"]
@@ -195,8 +202,16 @@ class TuxedoPanel(alarm.AlarmControlPanel):
         """Send arm night command."""
         await self._api_arm_request(ARMING_NAME_NIGHT, code)
 
+    async def _api_register(self, mac):
+        return await self._async_api_request(
+            "/Registration/Register", {"mac": mac, "operation": "set"}
+        )
+
+    async def _api_get_state(self):
+        return await self._async_api_request("/GetSecurityStatus", {"operation": "get"})
+
     async def _api_disarm_request(self, code=None):
-        result = self._api_request(
+        result = await self._async_api_request(
             "/AdvancedSecurity/DisarmWithCode",
             {"pID": "1", "ucode": code or self._code, "operation": "set"},
         )
@@ -206,7 +221,7 @@ class TuxedoPanel(alarm.AlarmControlPanel):
             self.async_schedule_update_ha_state()
 
     async def _api_arm_request(self, arm_name, code=None):
-        result = self._api_request(
+        result = await self._async_api_request(
             "/AdvancedSecurity/ArmWithCode",
             {
                 "arming": arm_name,
@@ -219,6 +234,11 @@ class TuxedoPanel(alarm.AlarmControlPanel):
         if result:
             await asyncio.sleep(2)
             self.async_schedule_update_ha_state()
+
+    async def _async_api_request(self, api_name, params):
+        return await self.hass.async_add_executor_job(
+            self._api_request, api_name, params
+        )
 
     def _api_request(self, api_name, params):
         uri_params = urllib.parse.urlencode(params)
